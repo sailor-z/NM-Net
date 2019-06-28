@@ -1,0 +1,528 @@
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+from torch.autograd import Variable
+
+adjacency_num = 8
+
+class ResidualBlock(nn.Module):
+    def __init__(self, pre=False):
+        super(ResidualBlock, self).__init__()
+        self.pre = pre
+        self.right = nn.Sequential(
+            nn.Conv2d(1, 128, (1, 4)),
+        )
+        self.conv = nn.Conv2d(128, 128, (1, 1))
+        self.block = nn.Sequential(
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+        self.BN = nn.BatchNorm2d(128)
+
+    def ContextNorm(self, input):
+      #  output = Variable(torch.FloatTensor(input.size())).cuda()
+        #output = input.clone()       ### important!!!
+        mid = input.view(input.size(0), -1)
+        mean = mid.mean(dim=1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(input)
+        std = mid.std(dim=1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(input)
+     #   for i in range(self.batch_size):
+      #      self.mean = input[i].mean()
+      #      self.std = input[i].std() #unbiased=False 有偏估计�?N�?       #     output[i] = (input[i] - self.mean)/(self.std + 0.00001)
+        return (input - mean) / (std + 0.0001)
+
+    def forward(self, x):
+        x = self.right(x) if self.pre is True else x
+        out = self.conv(x)
+        out = self.ContextNorm(out)
+        out = self.block(out)
+        out = self.conv(out)
+        out = self.ContextNorm(out)
+        out = self.BN(out)
+        out = out + x
+        return F.relu(out)
+
+class Base_Block(nn.Module):
+    def __init__(self, pre=False):
+        super(Base_Block, self).__init__()
+        self.pre = pre
+        self.right = nn.Sequential(
+            nn.Conv2d(1, 128, (1, 8)),
+        )
+        self.conv = nn.Conv2d(128, 128, (1, 1))
+        self.BN = nn.BatchNorm2d(128)
+
+    def forward(self, x):
+        x = self.right(x) if self.pre is True else x
+        out = self.conv(x)
+        out = self.BN(out)
+        out = F.relu(out)
+        out = self.conv(x)
+        out = self.BN(out)
+        out = out + x
+        return F.relu(out)
+
+class D12_Block(nn.Module):
+    def __init__(self, pre=False):
+        super(D12_Block, self).__init__()
+        self.pre = pre
+        self.right = nn.Sequential(
+            nn.Conv2d(1, 128, (1, 12)),
+        )
+        self.conv = nn.Conv2d(128, 128, (1, 1))
+        self.BN = nn.BatchNorm2d(128)
+
+    def forward(self, x):
+        x = self.right(x) if self.pre is True else x
+        out = self.conv(x)
+        out = self.BN(out)
+        out = F.relu(out)
+        out = self.conv(x)
+        out = self.BN(out)
+        out = out + x
+        return F.relu(out)
+        
+class PointNet_Block(nn.Module):
+    def __init__(self, pre=False):
+        super(PointNet_Block, self).__init__()
+        self.pre = pre
+        self.right = nn.Sequential(
+            nn.Conv2d(1, 128, (1, 4)),
+        )
+        self.conv = nn.Conv2d(128, 128, (1, 1))
+        self.BN = nn.BatchNorm2d(128)
+
+    def forward(self, x):
+        x = self.right(x) if self.pre is True else x
+        out = self.conv(x)
+        out = self.BN(out)
+        out = F.relu(out)
+        out = self.conv(x)
+        out = self.BN(out)
+        out = out + x
+        return F.relu(out)
+
+class local_Block(nn.Module):
+    def __init__(self, pre=False):
+        super(local_Block, self).__init__()
+        self.pre = pre
+        self.right = nn.Sequential(
+            nn.Conv2d(8, 128, (1, 1)),
+        )
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(128, 128, (1, 1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(256, 128, (1, 1)),
+            nn.BatchNorm2d(128)
+        )
+       
+    def graph_ave_pooling(self, input_feature, adjacency):
+        expand_feature = input_feature.repeat(1, 1, 1, input_feature.size(2))
+        output_feature = expand_feature * (adjacency.unsqueeze(1).expand_as(expand_feature))
+        output_feature = (output_feature.sum(dim=2) / 8).unsqueeze(-1)
+        return output_feature
+        
+    def feature_fusion(self, input_feature, pooling_feature):
+        return torch.cat((input_feature, pooling_feature.expand_as(input_feature)), dim=1)    
+        
+    def forward(self, x, adjacency):
+        x = self.right(x) if self.pre is True else x
+        out = self.conv1(x)
+        pooling = self.graph_ave_pooling(out, adjacency)
+        out = self.feature_fusion(out, pooling)
+        out = self.conv2(out)
+        out = out + x
+        return F.relu(out)
+        
+class LCSNet_block(nn.Module):
+    def __init__(self):
+        super(LCSNet_block, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(adjacency_num, 64, (1, 64)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+        )
+
+    def L2_norm(self, input):
+        output = input / torch.unsqueeze(torch.sqrt(torch.sum(torch.pow(input, 2), dim=1)), dim=1)
+        return output
+    
+    def find_adjacency(self, input):
+        non_zero = []
+        input_view = input.transpose(1, 3).squeeze()
+        for i in range(input_view.size(0)):
+            score = torch.mm(input_view[i], input_view[i].t())
+            sort_index = torch.sort(score, dim=1, descending=True)[1][:, 0:adjacency_num]
+            non_zero.append(input_view[i][sort_index, :])
+        non_zero = torch.stack(non_zero)
+        return non_zero.transpose(1, 2)
+    '''
+    def find_adjacency(self, input):
+
+        non_zero = []
+        for i in range(input.size(2)):
+            score = torch.sum(input[:, :, i, :].unsqueeze(2) * input, dim=1).unsqueeze(1)
+            sort_index = torch.sort(score, dim=2, descending=True)[1][:, :, 0:adjacency_num, :].squeeze()
+            non_zero.append(
+                torch.stack([input[b_idx, :, sort_index[b_idx], :] for b_idx in range(input.size(0))], dim=0))
+        return torch.stack(non_zero).squeeze().transpose(0, 1).transpose(1, 3).transpose(2, 3)
+    '''
+    def conca(self, input, mask):
+        mul_matrix = input.repeat(1, 1, 1, input.size(2)) * mask
+        non_zero = mul_matrix[mul_matrix != 0].view(input.size(0), input.size(1), adjacency_num, input.size(2))
+        return non_zero.transpose(2, 3)
+
+    def forward(self, input):
+        out = self.L2_norm(input)
+        out = self.find_adjacency(out)
+     #   conca_out = self.conca(input_norm, mask)
+        out = self.conv1(out)
+
+        return F.relu(out + input)    
+            
+class PointNet(nn.Module):
+    def __init__(self):
+        super(PointNet, self).__init__()
+        self.pre = PointNet_Block(pre=True)
+        self.layer = self.make_layers(layer_num=11)
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(256, 1, (1, 1)),
+        )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(PointNet_Block(pre=False))
+        return nn.Sequential(*layers)
+        
+    def global_avpooling(self, input):
+        return torch.mean(input, dim=2).unsqueeze(-1)
+        
+    def feature_fusion(self, input_feature, pooling_feature):
+        return torch.cat((input_feature, pooling_feature.expand_as(input_feature)), dim=1)
+        
+    def forward(self, x):
+        out = self.pre(x)
+        out = self.layer(out)
+        pooling = self.global_avpooling(out)
+        out = self.feature_fusion(out, pooling)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+
+class LCSNet(nn.Module):
+    def __init__(self):
+        super(LCSNet, self).__init__()
+        self.intial_conv = nn.Conv2d(adjacency_num, 64, (1, 4))
+        self.Res_layer = self.make_layers(6)
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(64, 1, (1, 1)),
+            )
+    def L2_norm_initial(self, input):
+        output = input / torch.unsqueeze(torch.sqrt(torch.sum(torch.pow(input, 2), dim=-1)), dim=-1)
+        return output
+        
+    def find_adjacency_initial(self, input):
+        non_zero = []
+        input_view = input.squeeze()
+        for i in range(input_view.size(0)):
+            score = torch.mm(input_view[i], input_view[i].t())
+            sort_index = torch.sort(score, dim=1, descending=True)[1][:, 0:adjacency_num]
+            non_zero.append(input_view[i][sort_index, :])
+        non_zero = torch.stack(non_zero)
+        return non_zero.transpose(1, 2)
+    '''   
+    def find_adjacency_initial(self, input):
+
+        non_zero = []
+        for i in range(input.size(2)):
+            score = torch.sum(input[:, :, i, :].unsqueeze(2) * input, dim=3).unsqueeze(3)
+            sort_index = torch.sort(score, dim=2, descending=True)[1][:, :, 0:adjacency_num, :].squeeze()
+            non_zero.append(torch.stack([input[b_idx, :, sort_index[b_idx], :] for b_idx in range(input.size(0))], dim=0))
+        return torch.stack(non_zero).squeeze(2).transpose(0, 1).transpose(1, 2)
+
+    def initial_conca(self, input, mask):
+        mul_matrix = input.repeat(1, input.size(2), 1, 1) * mask
+        non_zero = mul_matrix[mul_matrix != 0].view(input.size(0), input.size(2), adjacency_num, input.size(3))
+        return non_zero.transpose(1, 2)
+    '''
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(LCSNet_block())
+        return nn.Sequential(*layers)
+
+    def forward(self, input):
+        output = self.L2_norm_initial(input)
+        output = self.find_adjacency_initial(output)
+     #   local_feature = self.initial_conca(output, mask)
+        output = self.intial_conv(output)
+        output = self.Res_layer(output)
+        output = self.final_conv(output)
+        output = output.view(output.size(0), -1)
+        w = F.tanh(output)
+        w = F.relu(w)
+        return output, w
+                
+class DesignNet_3(nn.Module):
+    def __init__(self):
+        super(DesignNet_3, self).__init__()
+        self.pre = Base_Block(pre=True)
+        self.layer = self.make_layers(layer_num=5)
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(128, 1, (1, 1)),
+    )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(Base_Block(pre=False))
+        return nn.Sequential(*layers)
+
+    def forward(self, score):
+        out = self.pre(score)
+        out = self.layer(out)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+
+class DesignNet_(nn.Module):
+    def __init__(self):
+        super(DesignNet_, self).__init__()
+        self.pre = Design_Block(pre=True)
+        self.layer = self.make_layers(layer_num=5)
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(256, 1, (1, 1)),
+    )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(Design_Block(pre=False))
+        return nn.Sequential(*layers)
+        
+    def global_avepooling(self, input):
+        return torch.mean(input, dim=2).unsqueeze(-1)
+        
+    def feature_fusion(self, input_feature, pooling_feature):
+        return torch.cat((input_feature, pooling_feature.expand_as(input_feature)), dim=1)
+        
+    def forward(self, x):
+        out = self.pre(x)
+        out = self.layer(out)
+        pooling = self.global_avepooling(out)
+        out = self.feature_fusion(out, pooling)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+        
+class DesignNet_5(nn.Module):
+    def __init__(self):
+        super(DesignNet_5, self).__init__()
+        self.pre = Design_Block(pre=True)
+        self.layer1 = self.make_layers(layer_num=2)
+        self.layer2 = self.make_layers(layer_num=3)
+        self.mlp = nn.Sequential(
+            nn.Conv2d(256, 128, (1, 1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+        )
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(128, 1, (1, 1)),
+    )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(Design_Block(pre=False))
+        return nn.Sequential(*layers)
+
+    def L2_normal(self, input):
+        normal_output = input / torch.unsqueeze(torch.sqrt(torch.sum(torch.pow(input, 2), dim=1)), 1)
+        return normal_output
+
+    def global_maxpooling(self, input):
+        return torch.max(input, dim=2)[0]
+
+    def feature_fusion(self, input_feature, pooling_feature):
+
+        return torch.cat((input_feature, pooling_feature), dim=1)
+
+    def graph_max_pooling(self, input_feature, adjacency):
+        input_feature = input_feature.transpose(2, 3)
+        expand_feature = input_feature.repeat(1, 1, input_feature.size(3), 1)
+   #     expand_feature = input_feature.repeat(1, 1, 1, input_feature.size(2))
+        output_feature = expand_feature * (adjacency.unsqueeze(1).expand_as(expand_feature))
+        output_feature = (output_feature.max(dim=3))[0].unsqueeze(-1)
+        return output_feature
+
+    def forward(self, x, adjacency):
+
+        out = self.pre(x)
+        gp = self.graph_max_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.layer1(out)
+        gp = self.graph_max_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.layer2(out)
+        gp = self.graph_max_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+        
+class DesignNet_6(nn.Module):
+    def __init__(self):
+        super(DesignNet_6, self).__init__()
+        self.pre = Design_Block(pre=True)
+        self.layer1 = self.make_layers(layer_num=2)
+        self.layer2 = self.make_layers(layer_num=3)
+        self.mlp = nn.Sequential(
+            nn.Conv2d(256, 128, (1, 1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+        )
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(128, 1, (1, 1)),
+    )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(Design_Block(pre=False))
+        return nn.Sequential(*layers)
+
+    def L2_normal(self, input):
+        normal_output = input / torch.unsqueeze(torch.sqrt(torch.sum(torch.pow(input, 2), dim=1)), 1)
+        return normal_output
+
+    def global_maxpooling(self, input):
+        return torch.max(input, dim=2)[0]
+
+    def feature_fusion(self, input_feature, pooling_feature):
+
+        return torch.cat((input_feature, pooling_feature), dim=1)
+
+    def graph_mean_pooling(self, input_feature, adjacency):
+        input_feature = input_feature.transpose(2, 3)
+        expand_feature = input_feature.repeat(1, 1, input_feature.size(3), 1)
+   #     expand_feature = input_feature.repeat(1, 1, 1, input_feature.size(2))
+        output_feature = expand_feature * (adjacency.unsqueeze(1).expand_as(expand_feature))
+        output_feature = (output_feature.mean(dim=3)).unsqueeze(-1)
+        return output_feature
+
+    def forward(self, x, adjacency):
+
+        out = self.pre(x)
+        gp = self.graph_mean_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.layer1(out)
+        gp = self.graph_mean_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.layer2(out)
+        gp = self.graph_mean_pooling(out, adjacency)
+        out = self.feature_fusion(out, gp)
+        out = self.mlp(out)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+'''
+class DesignNet_5(nn.Module):
+    def __init__(self):
+        super(DesignNet_5, self).__init__()
+        self.pre = Design_Block(pre=True)
+  #      self.block = Design_Block(pre=False)
+        self.layer = self.make_layers(layer_num=5)
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(128, 1, (1, 1)),
+        nn.BatchNorm2d(1),
+        )
+    
+    def graph_ave_pooling(self, input_feature, adjacency):
+        input_feature = input_feature.transpose(2, 3)
+        expand_feature = input_feature.repeat(1, 1, input_feature.size(3), 1)
+   #     expand_feature = input_feature.repeat(1, 1, 1, input_feature.size(2))
+        output_feature = expand_feature * (adjacency.unsqueeze(1).expand_as(expand_feature))
+        output_feature = (output_feature.sum(dim=3)).unsqueeze(-1)
+        outout_feature = (input_feature + output_feature) / 9
+        return output_feature
+        
+ #   def feature_fusion(self, input_feature, pooling_feature):
+  #      return torch.cat((input_feature, pooling_feature.expand_as(input_feature)), dim=1) 
+          
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(Design_Block(pre=False))
+        return nn.Sequential(*layers)
+    
+    def forward(self, x, adjacency):
+        out = self.pre(x)
+   #     out = self.layer(out, adjacency)
+        out = self.layer(out)
+        out = self.graph_ave_pooling(out, adjacency)
+   #     out = self.feature_fusion(out, pooling)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.relu(out)
+        w = F.tanh(w)
+        return out, w
+'''
+class DesignNet_9(nn.Module):
+    def __init__(self):
+        super(DesignNet_9, self).__init__()
+        self.pre = D12_Block(pre=True)
+        self.layer = self.make_layers(layer_num=5)
+        self.conv_layer = nn.Sequential(
+        nn.Conv2d(128, 1, (1, 1)),
+    )
+    def make_layers(self, layer_num):
+        layers = []
+        for i in range(0, layer_num):
+            layers.append(D12_Block(pre=False))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+
+        out = self.pre(x)
+        out = self.layer(out)
+        out = self.conv_layer(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w
+                
+class LGCNet(nn.Module):
+    def __init__(self):
+        super(LGCNet, self).__init__()
+        self.layer1 = self.make_layers()
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(128, 1, (1, 1)),
+        )
+
+    def make_layers(self):
+        layers = []
+        layers.append(ResidualBlock(pre=True))
+        for i in range(1, 12):
+            layers.append(ResidualBlock(pre=False))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out = out.view(out.size(0), -1)
+        w = F.tanh(out)
+        w = F.relu(w)
+        return out, w

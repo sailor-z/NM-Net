@@ -1,0 +1,135 @@
+from __future__ import print_function
+import pickle
+import numpy as np
+import torch
+import os
+import sys
+from torch.utils.data import Dataset
+
+Adjacency_num = 8
+def skew_symmetric(v):
+    zero = np.zeros((len(v), 1))
+
+    M = np.hstack((zero, -v[:, 2, :], v[:, 1, :],
+        v[:, 2, :], zero, -v[:, 0, :],
+        -v[:, 1, :], v[:, 0, :], zero))
+    return M
+
+def loda_data(config, var_mode):
+
+    print("Loading {} data".format(var_mode))
+    # use only the first two characters for shorter abbrv
+    var_mode = var_mode[:2]
+    # Now load data.
+    var_name_list = [
+        "xs", "ys", "Rs", "ts",
+    ]
+    data_folder = config.data_dump_prefix
+    if config.use_lift:
+        data_folder += "_lift"
+
+    # Let's unpickle and save data
+    data = {}
+    data_names = getattr(config, "data_" + var_mode)
+    data_names = data_names.split(".")
+    for data_name in data_names:
+        cur_data_folder = "/".join([
+            data_folder,
+            data_name,
+            "numkp-{}".format(config.obj_num_kp),
+            "nn-{}".format(config.obj_num_nn),
+        ])
+        if not config.data_crop_center:
+            cur_data_folder = os.path.join(cur_data_folder, "nocrop")
+        suffix = "{}-{}".format(
+            var_mode,
+            getattr(config, "train_max_" + var_mode + "_sample")
+        )
+        cur_folder = os.path.join(cur_data_folder, suffix)
+        ready_file = os.path.join(cur_folder, "ready")
+        if not os.path.exists(ready_file):
+            # data_gen_lock.unlock()
+            raise RuntimeError("Data is not prepared!")
+
+        for var_name in var_name_list:
+            cur_var_name = var_name + "_" + var_mode
+            in_file_name = os.path.join(cur_folder, cur_var_name) + ".pkl"
+            with open(in_file_name, "rb") as ifp:
+                if var_name in data:
+                    data[var_name] += pickle.load(ifp)
+                else:
+                    data[var_name] = pickle.load(ifp)
+
+    e_gt_unnorm = skew_symmetric(np.expand_dims(np.array(data["ts"]), axis=-1))
+    e_gt = e_gt_unnorm / np.linalg.norm(e_gt_unnorm, ord=2, axis=1, keepdims=True)
+    data["Es"] = e_gt
+    '''
+    shape = np.array(data["xs"]).shape
+    adjacency = np.zeros((shape[0], shape[2], shape[2]), dtype = np.int8)
+    num = np.array(data["score"]).shape[2]
+    ad = np.array(data["adjacency"])
+    for i in range(adjacency.shape[0]):
+        for j in range(adjacency.shape[1]):
+            for k in range(num):
+                adjacency[i, j, ad[i, j, k]] = 1
+    '''
+  #  data["adjacency"] = torch.from_numpy(adjacency.astype(np.uint8))
+      #  ys = torch.from_numpy(np.array(self.data["ys"][item].astype(np.float32)))
+     #   Rs = torch.from_numpy(np.array(self.data["Rs"][item].astype(np.float32)))
+     #   ts = torch.from_numpy(np.array(self.data["ts"][item].astype(np.float32)))
+      #  Es = torch.from_numpy(np.array(self.data["Es"][item].astype(np.float32)))
+    return data
+
+class data_initial(Dataset):
+    def __init__(self, config, var_mode):
+        super(data_initial, self).__init__()
+        self.config = config
+        self.var_mode = var_mode
+
+        print("Loading {} data".format(var_mode))
+        self.data = loda_data(self.config, self.var_mode)
+
+    def __getitem__(self, item):
+     #   xs = torch.from_numpy(np.array(self.data["xs"][item].astype(np.float32)))
+      #  ys = torch.from_numpy(np.array(self.data["ys"][item].astype(np.float32)))
+     #   Rs = torch.from_numpy(np.array(self.data["Rs"][item].astype(np.float32)))
+     #   ts = torch.from_numpy(np.array(self.data["ts"][item].astype(np.float32)))
+      #  Es = torch.from_numpy(np.array(self.data["Es"][item].astype(np.float32)))
+        xs = self.data["xs"][item]
+        ys = self.data["ys"][item]
+        Rs = self.data["Rs"][item]
+        ts = self.data["ts"][item]
+        Es = self.data["Es"][item]
+        return (xs, ys, Rs, ts, Es)
+
+    def __len__(self):
+        return len(self.data["xs"])
+
+    def collate_fn(batch):
+        xs, ys, Rs, ts, Es = zip(*batch)
+
+        numkps = torch.Tensor([xs[_i].shape[1] for _i in xs.size(0)])
+        cur_num_kp = numkps.min()
+
+        # Actual construction of the batch
+        xs_b = torch.Tensor(
+            [xs[_i][:, :cur_num_kp, :] for _i in xs.size(0)]
+        ).reshape(xs.size(0), 1, cur_num_kp, 4).type(torch.FloatTensor)
+
+        ys_b = torch.Tensor(
+            [ys[_i][:cur_num_kp, :] for _i in xs.size(0)]
+        ).reshape(xs.size(0), cur_num_kp, 2).type(torch.FloatTensor)
+
+        Rs_b = torch.Tensor(
+            [Rs[_i] for _i in xs.size(0)]
+        ).reshape(xs.size(0), 9).type(torch.FloatTensor)
+
+        ts_b = torch.Tensor(
+            [ts[_i] for _i in xs.size(0)]
+        ).reshape(xs.size(0), 3).type(torch.FloatTensor)
+
+        Es_b = torch.Tensor(
+            [Es[_i] for _i in xs.size(0)]
+        ).reshape(xs.size(0), 9).type(torch.FloatTensor)
+
+        return (xs_b, ys_b, Rs_b, ts_b, Es_b)
