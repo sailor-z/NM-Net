@@ -231,7 +231,7 @@ def neighbors_inlier_statistic(xs_initial, mask, aff):
     ratio[0, 1] = gt_ratio
     return ratio
     
-def make_xy(num_sample, pair_index, img, kp, desc, aff, K, R, t, cur_folder):
+def make_xy(pair_index, img, kp, desc, aff, K, R, t, cur_folder):
     kp_initial = copy.deepcopy(kp)
     xs = []
     xs_initial = []
@@ -537,72 +537,61 @@ data_folder = config.data_dump_prefix
 # Now start data prep
 print("Preparing data for {}".format(config.data_tr.split(".")[0]))
 
-for _set in ["train", "valid", "test"]:
-    num_sample = getattr(
-        config, "train_max_{}_sample".format(_set[:2]))
-
-    # Load the data
-    print("Loading Raw Data for {}".format(_set))
-    if _set == "valid":
-        split = "val"
-    else:
-        split = _set
         
-  #  train_path = getattr(config, "data_dir_" + _set[:2]) + split + "/" 
-    train_path = getattr(config, "data_dir_tr")
+#  train_path = getattr(config, "data_dir_" + _set[:2]) + split + "/" 
+train_path = getattr(config, "data_dir_tr")
 
-  # Create data dump directory name
-    data_names = getattr(config, "data_" + _set[:2])
-    data_name = data_names.split(".")[0]
-    cur_folder = "/".join([
-        data_folder,
-        data_name,
-        "numkp-{}".format(config.obj_num_kp)
-    ])
+# Create data dump directory name
+data_names = getattr(config, "data_tr")
+data_name = data_names.split(".")[0]
+cur_folder = "/".join([
+    data_folder,
+    data_name,
+    "numkp-{}".format(config.obj_num_kp)
+])
 
-    if not os.path.exists(cur_folder):
-        os.makedirs(cur_folder)
+if not os.path.exists(cur_folder):
+    os.makedirs(cur_folder)
 
-    img, kp, desc, aff, K, R, t = loadFromDir(
-        train_path, cur_folder,
-        "-16x16",
-        bUseColorImage=True,
-        crop_center=crop_center,
-        load_hessian = True)
-        
-    if len(kp) == 0:
-        kp = [None] * len(img)
-    if len(desc) == 0:
-        desc = [None] * len(img)
+img, kp, desc, aff, K, R, t = loadFromDir(
+    train_path, cur_folder,
+    "-16x16",
+    bUseColorImage=True,
+    crop_center=crop_center,
+    load_hessian = True)
     
-    pair_index = np.loadtxt(train_path + "pair_index.txt")
+if len(kp) == 0:
+    kp = [None] * len(img)
+if len(desc) == 0:
+    desc = [None] * len(img)
 
-    # Check if we've done this folder already.
-    print(" -- Waiting for the data_folder to be ready")
-    ready_file = os.path.join(cur_folder, "ready")
-    if not os.path.exists(ready_file):
-        print(" -- No ready file {}".format(ready_file))
-        print(" -- Generating data")
-        
-        # Make xy for this pair
-        data_dict = make_xy(
-            num_sample, pair_index, img, kp, desc, aff, K, R, t, cur_folder)
- 
-        # Let's pickle and save data. Note that I'm saving them
-        # individually. This was to have flexibility, but not so much
-        # necessary.
-        for var_name in data_dict:
-            cur_var_name = var_name + "_" + _set[:2]
-            out_file_name = os.path.join(cur_folder, cur_var_name) + ".pkl"
-            with open(out_file_name, "wb") as ofp:
-                pickle.dump(data_dict[var_name], ofp)
+pair_index = np.loadtxt(train_path + "pair_index.txt")
 
-        # Mark ready
-        with open(ready_file, "w") as ofp:
-            ofp.write("This folder is ready\n")
-    else:
-        print("Done!")
-    exit()
+# Check if we've done this folder already.
+print(" -- Waiting for the data_folder to be ready")
+ready_file = os.path.join(cur_folder, "ready")
+if not os.path.exists(ready_file):
+    print(" -- No ready file {}".format(ready_file))
+    print(" -- Generating data")
+    
+    # Make xy for this pair
+    data_dict = make_xy(pair_index, img, kp, desc, aff, K, R, t, cur_folder)
+
+    # Let's pickle and save data. Note that I'm saving them
+    # individually. This was to have flexibility, but not so much
+    # necessary.
+    for var_name in data_dict:
+        cur_var_name = var_name + "_" + _set[:2]
+        out_file_name = os.path.join(cur_folder, cur_var_name) + ".pkl"
+        with open(out_file_name, "wb") as ofp:
+            pickle.dump(data_dict[var_name], ofp)
+
+    # Mark ready
+    with open(ready_file, "w") as ofp:
+        ofp.write("This folder is ready\n")
+else:
+    print("Done!")
+exit()
 
 #
 # dump_data.py ends here

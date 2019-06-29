@@ -18,7 +18,6 @@ from dataset import Data_Loader
 
 config = None
 
-
 def weights_init(m):
     if isinstance(m, torch.nn.Conv2d):
         torch.nn.init.xavier_normal_(m.weight.data)

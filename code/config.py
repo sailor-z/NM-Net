@@ -3,9 +3,6 @@
 
 import argparse
 
-from servers import is_computecanada, is_cvlab_epfl, is_vcg_uvic
-
-
 def str2bool(v):
     return v.lower() in ("true", "1")
 
