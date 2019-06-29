@@ -15,12 +15,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn.utils as utils
 import matplotlib.pyplot as plt
 from dataset import Data_Loader
-eps = 1e-10
-use3d = False
+
 config = None
-adjacency_num = 8
-min_kp_num = 500
-database = "COLMAP128"
+
 
 def weights_init(m):
     if isinstance(m, torch.nn.Conv2d):
