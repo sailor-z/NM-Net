@@ -41,6 +41,11 @@ obj_arg.add_argument(
 obj_arg.add_argument(
     "--obj_geod_th", type=float, default=1e-4, help=""  
     "theshold for the good geodesic distance")
+obj_arg.add_argument(
+    "--obj_num_nn", type=int, default=1, help=""
+    "number of nearest neighbors in terms of descriptor "
+    "distance that are considered when generating the "
+    "distance matrix")
 # -----------------------------------------------------------------------------
 # Training
 train_arg = add_argument_group("Train")
