@@ -13,4 +13,4 @@ protobuf==3.5.2.post1
 six==1.11.0
 termcolor==1.1.0
 tqdm==4.20.0
-Werkzeug==0.14.1
+Werkzeug==0.15.3
