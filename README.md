@@ -25,3 +25,6 @@ For the first time running 'main.py' in each dataset, set the parameter `initial
 ```
 python ./main.py COLMAP #NARROW WIDE
 ```
+# Further works
+***
+An end-to-end version will be released after the corresponding paper being accepted.
