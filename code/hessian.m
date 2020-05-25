@@ -1,6 +1,6 @@
 function [frames, patches] = hessian(img)
 max_num = 2000;
-addpath ('../vlfeat-0.9.21/toolbox/');
+addpath ('../vlfeat-0.9.20/toolbox/');
 vl_setup;
 im=imread(img);
 rgb=size(im);
