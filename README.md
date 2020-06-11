@@ -27,4 +27,4 @@ python ./main.py COLMAP #NARROW WIDE
 ```
 # End-to-end version
 ***
-An end-to-end version has been released which is independent to affine information. Please refer to 'code/NM-Net_v2.py'.
+An end-to-end version has been released which is independent to affine information. Please refer to `code/NM-Net_v2.py`.
