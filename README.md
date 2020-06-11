@@ -25,6 +25,6 @@ For the first time running 'main.py' in each dataset, set the parameter `initial
 ```
 python ./main.py COLMAP #NARROW WIDE
 ```
-# Further works
+# End-to-end version
 ***
-An end-to-end version will be released after the corresponding paper being accepted.
+An end-to-end version has been released which is independent to affine information. Please refer to 'code/NM-Net_v2.py'.
