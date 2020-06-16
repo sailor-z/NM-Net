@@ -29,7 +29,7 @@ python ./dump_data.py
 ```
 # Training
 ***
-For the first time running 'main.py' in each dataset, set the parameter `initialize` in `Data_Loader` to be `True`.
+For the first time running `main.py` in each dataset, set the parameter `initialize` in `Data_Loader` to be `True`.
 
 ```
 python ./main.py COLMAP #NARROW WIDE
