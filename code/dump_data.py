@@ -581,7 +581,8 @@ if not os.path.exists(ready_file):
     # individually. This was to have flexibility, but not so much
     # necessary.
     for var_name in data_dict:
-        cur_var_name = var_name + "_" + _set[:2]
+    #    cur_var_name = var_name + "_" + _set[:2]
+        cur_var_name = var_name + "_tr"
         out_file_name = os.path.join(cur_folder, cur_var_name) + ".pkl"
         with open(out_file_name, "wb") as ofp:
             pickle.dump(data_dict[var_name], ofp)
